@@ -10,12 +10,15 @@ Google-specific behaviors:
   - Validation via oauth2/v1/tokeninfo endpoint
 """
 
+import logging
 import time
 import requests
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Callable
 
 from oauth_base import OAuthBase
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_TOKENINFO_URL = "https://www.googleapis.com/oauth2/v1/tokeninfo"
 
@@ -28,15 +31,27 @@ class GoogleOAuth(OAuthBase):
     # Google OAuth configuration - credentials stored WITH tokens (Pearl's approach)
     @property
     def CLIENT_ID(self):
-        """Get client_id from the same token data (stored together)."""
+        """Get client_id from the same token data (stored together, cached)."""
+        cached = getattr(self, "_cached_client_id", None)
+        if cached is not None:
+            return cached
         token_data = self.get_token_data()
-        return token_data.get("client_id", "") if token_data else ""
-    
-    @property  
+        value = token_data.get("client_id", "") if token_data else ""
+        if value:
+            self._cached_client_id = value
+        return value
+
+    @property
     def CLIENT_SECRET(self):
-        """Get client_secret from the same token data (stored together)."""
+        """Get client_secret from the same token data (stored together, cached)."""
+        cached = getattr(self, "_cached_client_secret", None)
+        if cached is not None:
+            return cached
         token_data = self.get_token_data()
-        return token_data.get("client_secret", "") if token_data else ""
+        value = token_data.get("client_secret", "") if token_data else ""
+        if value:
+            self._cached_client_secret = value
+        return value
     REDIRECT_URI = "http://localhost:8080/"
     SCOPES = ["https://www.googleapis.com/auth/calendar", 
               "https://www.googleapis.com/auth/gmail.modify"]
@@ -108,17 +123,17 @@ class GoogleOAuth(OAuthBase):
             # Get current token data
             current_data = self.get_token_data()
             if current_data is None:
-                print(f"❌ [{self.PROVIDER}] No existing token data for refresh")
+                logger.error("[%s] No existing token data for refresh", self.PROVIDER)
                 return False
 
             # Check if refresh is needed (unless forced)
             if not force and self._is_token_fresh(current_data):
-                print(f"✅ [{self.PROVIDER}] Token still fresh, skipping refresh")
+                logger.info("[%s] Token still fresh, skipping refresh", self.PROVIDER)
                 return True
 
             refresh_token = current_data.get("refresh_token")
             if not refresh_token:
-                print(f"❌ [{self.PROVIDER}] No refresh token available")
+                logger.error("[%s] No refresh token available", self.PROVIDER)
                 return False
 
             # Get token endpoint
@@ -134,37 +149,45 @@ class GoogleOAuth(OAuthBase):
 
             # Make refresh request
             response = requests.post(token_uri, data=refresh_data, timeout=30)
-            
+
             if response.status_code != 200:
-                print(f"❌ [{self.PROVIDER}] Token refresh failed: {response.status_code}")
-                print(f"   Response: {response.text}")
+                logger.error("[%s] Token refresh failed: %s", self.PROVIDER, response.status_code)
+                logger.error("   Response: %s", response.text)
                 return False
 
             # Parse response
-            new_token_data = response.json()
-            
+            try:
+                new_token_data = response.json()
+            except (ValueError, requests.JSONDecodeError):
+                logger.error("[%s] Invalid JSON in refresh response", self.PROVIDER)
+                return False
+
+            if "access_token" not in new_token_data:
+                logger.error("[%s] No access_token in refresh response", self.PROVIDER)
+                return False
+
             # Preserve fields from original token
             updated_data = current_data.copy()
             updated_data["access_token"] = new_token_data["access_token"]
-            
+
             # Update expiry
             if "expires_in" in new_token_data:
                 updated_data["expiry"] = self._make_expiry(new_token_data["expires_in"])
-            
+
             # Update refresh token if provided
             if "refresh_token" in new_token_data:
                 updated_data["refresh_token"] = new_token_data["refresh_token"]
 
             # Save updated token
             self.save_token(updated_data)
-            print(f"✅ [{self.PROVIDER}] Token refreshed successfully")
+            logger.info("[%s] Token refreshed successfully", self.PROVIDER)
             return True
 
         except requests.RequestException as e:
-            print(f"❌ [{self.PROVIDER}] Network error during refresh: {e}")
+            logger.error("[%s] Network error during refresh: %s", self.PROVIDER, e)
             return False
-        except Exception as e:
-            print(f"❌ [{self.PROVIDER}] Unexpected error during refresh: {e}")
+        except (KeyError, ValueError, TypeError) as e:
+            logger.error("[%s] Unexpected error during refresh: %s", self.PROVIDER, e)
             return False
 
 
@@ -211,14 +234,20 @@ def exchange_authorization_code(auth_code: str) -> dict:
     
     response = requests.post('https://oauth2.googleapis.com/token', data=token_data)
     response.raise_for_status()
-    
-    token_response = response.json()
-    
+
+    try:
+        token_response = response.json()
+    except (ValueError, requests.JSONDecodeError):
+        raise ValueError("Invalid JSON in token exchange response")
+
+    if 'access_token' not in token_response:
+        raise KeyError("No access_token in token exchange response")
+
     # Add expiry timestamp
     if 'expires_in' in token_response:
         expiry_dt = datetime.now(timezone.utc) + timedelta(seconds=token_response['expires_in'])
         token_response['expiry'] = expiry_dt.isoformat()
-    
+
     return token_response
 
 

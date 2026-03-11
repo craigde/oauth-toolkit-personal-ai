@@ -11,6 +11,7 @@ Steps to create a new provider:
 5. Add to PROVIDER_CONFIG in oauth_base.py
 """
 
+import os
 import time
 import requests
 from typing import Optional, Callable
@@ -24,9 +25,9 @@ class TemplateOAuth(OAuthBase):
     # Set the provider name (must match PROVIDER_CONFIG key)
     PROVIDER = "template"
 
-    # OAuth configuration - update these for your provider
-    CLIENT_ID = "your-client-id"
-    CLIENT_SECRET = "your-client-secret"
+    # OAuth configuration - load from environment variables (never hardcode!)
+    CLIENT_ID = os.getenv("TEMPLATE_CLIENT_ID", "")
+    CLIENT_SECRET = os.getenv("TEMPLATE_CLIENT_SECRET", "")
     REDIRECT_URI = "http://localhost:8080/"
     TOKEN_URL = "https://api.example.com/oauth/token"
     AUTH_URL = "https://api.example.com/oauth/authorize"

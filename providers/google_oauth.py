@@ -10,6 +10,7 @@ Google-specific behaviors:
   - Validation via oauth2/v1/tokeninfo endpoint
 """
 
+import os
 import time
 import requests
 from datetime import datetime, timedelta, timezone
@@ -26,9 +27,9 @@ class GoogleOAuth(OAuthBase):
     PROVIDER = "google"
 
     # Google OAuth configuration
-    # You'll need to create a Google Cloud project and get these values
-    CLIENT_ID = "your-client-id.apps.googleusercontent.com"
-    CLIENT_SECRET = "your-client-secret"
+    # Credentials loaded from environment variables (never hardcode!)
+    CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
     REDIRECT_URI = "http://localhost:8080/"
     SCOPES = ["https://www.googleapis.com/auth/calendar", 
               "https://www.googleapis.com/auth/gmail.modify"]

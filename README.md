@@ -40,13 +40,9 @@ pip install requests
 
 ### 2. Setup 1Password
 ```bash
-# Create OAuth token items in 1Password
+# Create OAuth item with EVERYTHING together (Pearl's approach)
 op item create --category="Login" --title="Google OAuth Token" \
-  --field="oauth_data={\"access_token\":\"your_token\",\"refresh_token\":\"your_refresh\",\"expiry\":\"2025-03-10T18:30:00+00:00\"}"
-
-# Create OAuth app credentials (client_id, client_secret)  
-op item create --category="Login" --title="Google OAuth App" \
-  --field="app_credentials={\"client_id\":\"your-client-id.apps.googleusercontent.com\",\"client_secret\":\"your-client-secret\"}"
+  --field="token_json={\"access_token\":\"your_token\",\"refresh_token\":\"your_refresh\",\"client_id\":\"your-client-id.apps.googleusercontent.com\",\"client_secret\":\"your-client-secret\",\"expiry\":\"2025-03-10T18:30:00+00:00\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}"
 ```
 
 ### 3. Basic Usage

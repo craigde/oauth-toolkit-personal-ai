@@ -10,16 +10,12 @@ Google-specific behaviors:
   - Validation via oauth2/v1/tokeninfo endpoint
 """
 
-import os
-import json
 import time
-import subprocess
 import requests
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional, Callable
 
-from oauth_base import OAuthBase, VAULT
+from oauth_base import OAuthBase
 
 GOOGLE_TOKENINFO_URL = "https://www.googleapis.com/oauth2/v1/tokeninfo"
 
@@ -29,43 +25,18 @@ class GoogleOAuth(OAuthBase):
 
     PROVIDER = "google"
 
-    # Google OAuth configuration - uses same two-tier storage as tokens
-    def _get_client_credentials(self):
-        """Get client credentials using two-tier storage (tmpfs + 1Password)."""
-        # Check tmpfs cache first
-        app_cache_path = Path("/dev/shm") / f"oauth-app-{self.PROVIDER}.json"
-        try:
-            if app_cache_path.exists():
-                app_data = json.loads(app_cache_path.read_text())
-                return app_data.get("client_id", ""), app_data.get("client_secret", "")
-        except:
-            pass
-        
-        # Fallback to 1Password
-        try:
-            result = subprocess.run([
-                "op", "item", "get", "Google OAuth App", "--vault", VAULT, 
-                "--fields", "app_credentials", "--reveal"
-            ], capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                app_data = json.loads(result.stdout.strip())
-                # Cache in tmpfs for fast future access
-                app_cache_path.write_text(json.dumps(app_data))
-                os.chmod(app_cache_path, 0o600)
-                return app_data.get("client_id", ""), app_data.get("client_secret", "")
-        except:
-            pass
-        
-        return "", ""
-    
+    # Google OAuth configuration - credentials stored WITH tokens (Pearl's approach)
     @property
     def CLIENT_ID(self):
-        return self._get_client_credentials()[0]
+        """Get client_id from the same token data (stored together)."""
+        token_data = self.get_token_data()
+        return token_data.get("client_id", "") if token_data else ""
     
     @property  
     def CLIENT_SECRET(self):
-        return self._get_client_credentials()[1]
+        """Get client_secret from the same token data (stored together)."""
+        token_data = self.get_token_data()
+        return token_data.get("client_secret", "") if token_data else ""
     REDIRECT_URI = "http://localhost:8080/"
     SCOPES = ["https://www.googleapis.com/auth/calendar", 
               "https://www.googleapis.com/auth/gmail.modify"]

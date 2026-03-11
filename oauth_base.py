@@ -122,9 +122,9 @@ class OAuthBase:
                 except (json.JSONDecodeError, KeyError):
                     print(f"❌ [{self.PROVIDER}] Invalid token in ${env_var}, falling back to 1Password")
             
-            # Fallback to 1Password CLI
+            # Fallback to 1Password CLI (Pearl's field name)
             result = subprocess.run(
-                ["op", "item", "get", item_name, "--vault", VAULT, "--fields", "label=oauth_data", "--reveal"],
+                ["op", "item", "get", item_name, "--vault", VAULT, "--fields", "token_json", "--reveal"],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -155,7 +155,7 @@ class OAuthBase:
         
         try:
             result = subprocess.run(
-                ["op", "item", "edit", item_name, "--vault", VAULT, f"oauth_data={json_str}"],
+                ["op", "item", "edit", item_name, "--vault", VAULT, f"token_json={json_str}"],
                 capture_output=True,
                 text=True,
                 timeout=30

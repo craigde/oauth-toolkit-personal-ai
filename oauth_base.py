@@ -19,11 +19,14 @@ Security model:
 
 import os
 import json
+import logging
 import stat
 import subprocess
 import requests
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
+
+logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────
 # Set your 1Password vault name here
@@ -89,7 +92,7 @@ class OAuthBase:
             path.write_text(json.dumps(token_data))
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 600
         except OSError as e:
-            print(f"⚠️  [{self.PROVIDER}] tmpfs write failed: {e}")
+            logger.warning("[%s] tmpfs write failed: %s", self.PROVIDER, e)
 
     # ── Tier 2: 1Password cold storage ────────────────────────────────
 
@@ -114,15 +117,6 @@ class OAuthBase:
         item_name = self._config["item_name"]
         
         try:
-            # Try environment variable first (for performance)
-            env_var = f"{self.PROVIDER.upper()}_OAUTH_TOKEN"
-            if env_var in os.environ:
-                try:
-                    return self._parse_1password_json(os.environ[env_var])
-                except (json.JSONDecodeError, KeyError):
-                    print(f"❌ [{self.PROVIDER}] Invalid token in ${env_var}, falling back to 1Password")
-            
-            # Fallback to 1Password CLI (Pearl's field name)
             result = subprocess.run(
                 ["op", "item", "get", item_name, "--vault", VAULT, "--fields", "token_json", "--reveal"],
                 capture_output=True,
@@ -131,21 +125,17 @@ class OAuthBase:
             )
             
             if result.returncode != 0:
-                print(f"❌ [{self.PROVIDER}] 1Password read failed: {result.stderr}")
+                logger.error("[%s] 1Password read failed: %s", self.PROVIDER, result.stderr)
                 return None
-            
+
             token_data = self._parse_1password_json(result.stdout)
-            
-            # Update environment for child processes
-            self._update_process_environment(result.stdout.strip())
-            
             return token_data
             
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            print(f"❌ [{self.PROVIDER}] 1Password CLI error: {e}")
+            logger.error("[%s] 1Password CLI error: %s", self.PROVIDER, e)
             return None
         except json.JSONDecodeError as e:
-            print(f"❌ [{self.PROVIDER}] Invalid JSON from 1Password: {e}")
+            logger.error("[%s] Invalid JSON from 1Password: %s", self.PROVIDER, e)
             return None
 
     def _write_to_1password(self, token_data: Dict[str, Any]) -> bool:
@@ -162,22 +152,14 @@ class OAuthBase:
             )
             
             if result.returncode == 0:
-                # Update environment for child processes
-                self._update_process_environment(json_str)
                 return True
             else:
-                print(f"❌ [{self.PROVIDER}] 1Password write failed: {result.stderr}")
+                logger.error("[%s] 1Password write failed: %s", self.PROVIDER, result.stderr)
                 return False
-                
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            print(f"❌ [{self.PROVIDER}] 1Password CLI error: {e}")
-            return False
 
-    def _update_process_environment(self, token_json: str) -> None:
-        """Update the current process environment with fresh token."""
-        env_var = f"{self.PROVIDER.upper()}_OAUTH_TOKEN"
-        os.environ[env_var] = token_json
-        print(f"✅ [{self.PROVIDER}] Updated process environment")
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            logger.error("[%s] 1Password CLI error: %s", self.PROVIDER, e)
+            return False
 
     # ── Token retrieval with auto-fallback ───────────────────────────
 
@@ -201,18 +183,18 @@ class OAuthBase:
             tmpfs_data = self._normalize_token_fields(tmpfs_data)
             
             if validate_fn and not validate_fn(tmpfs_data):
-                print(f"⚠️  [{self.PROVIDER}] tmpfs token stale, falling back to 1Password")
+                logger.warning("[%s] tmpfs token stale, falling back to 1Password", self.PROVIDER)
             else:
                 return tmpfs_data
 
         # ── Tier 2: 1Password (slow, authoritative) ────────────────────
-        print(f"🔑 [{self.PROVIDER}] Reading from 1Password...")
+        logger.info("[%s] Reading from 1Password...", self.PROVIDER)
         op_data = self._read_from_1password()
         if op_data:
             # Apply provider-specific normalization
             op_data = self._normalize_token_fields(op_data)
             self._write_to_tmpfs(op_data)
-            print(f"✅ [{self.PROVIDER}] Backfilled tmpfs from 1Password")
+            logger.info("[%s] Backfilled tmpfs from 1Password", self.PROVIDER)
         return op_data
 
     def get_access_token(self) -> Optional[str]:
@@ -243,9 +225,9 @@ class OAuthBase:
         self._write_to_tmpfs(token_data)
 
         if self._write_to_1password(token_data):
-            print(f"✅ [{self.PROVIDER}] Token saved to tmpfs + 1Password")
+            logger.info("[%s] Token saved to tmpfs + 1Password", self.PROVIDER)
         else:
-            print(f"⚠️  [{self.PROVIDER}] Token saved to tmpfs only (1Password write failed)")
+            logger.warning("[%s] Token saved to tmpfs only (1Password write failed)", self.PROVIDER)
 
     # ── API testing ───────────────────────────────────────────────────
 
@@ -324,31 +306,31 @@ def seed_tmpfs_from_1password() -> None:
     
     Called once at startup to warm the tmpfs cache.
     """
-    print("🌱 Seeding tmpfs cache from 1Password...")
-    
+    logger.info("Seeding tmpfs cache from 1Password...")
+
     for provider_key in PROVIDER_CONFIG.keys():
         try:
             # Dynamically import the provider class
             module_name = f"providers.{provider_key}_oauth"
             class_name = f"{provider_key.title()}OAuth"
-            
+
             try:
                 module = __import__(module_name, fromlist=[class_name])
                 provider_class = getattr(module, class_name)
-                
+
                 provider = provider_class()
                 token_data = provider.get_token_data()
-                
+
                 if token_data:
-                    print(f"✅ Seeded {provider_key} tokens")
+                    logger.info("Seeded %s tokens", provider_key)
                 else:
-                    print(f"⚠️  No tokens found for {provider_key}")
-                    
+                    logger.warning("No tokens found for %s", provider_key)
+
             except (ImportError, AttributeError):
-                print(f"⚠️  Provider {provider_key} not available")
-                
-        except Exception as e:
-            print(f"❌ Failed to seed {provider_key}: {e}")
+                logger.warning("Provider %s not available", provider_key)
+
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as e:
+            logger.error("Failed to seed %s: %s", provider_key, e)
 
 
 if __name__ == "__main__":

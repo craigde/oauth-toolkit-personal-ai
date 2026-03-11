@@ -19,10 +19,17 @@ from oauth_base import OAuthBase
 class MockOAuth(OAuthBase):
     """Mock OAuth provider for testing."""
     PROVIDER = "test"
-    
+
     def refresh_token(self, force: bool = False) -> bool:
         """Mock refresh implementation."""
         return True
+
+    @staticmethod
+    def _normalize_token_fields(token_data: dict) -> dict:
+        """Normalize legacy 'token' field to 'access_token'."""
+        if "token" in token_data and "access_token" not in token_data:
+            token_data["access_token"] = token_data.pop("token")
+        return token_data
 
 
 class TestOAuthBase(unittest.TestCase):
@@ -37,9 +44,10 @@ class TestOAuthBase(unittest.TestCase):
         # Create temporary directory for tmpfs simulation
         self.temp_dir = tempfile.mkdtemp()
         
-        # Monkey patch tmpfs directory
+        # Monkey patch tmpfs directory (capture temp_dir via default arg to avoid closure bug)
         self.original_tmpfs_dir = OAuthBase._tmpfs_path
-        OAuthBase._tmpfs_path = lambda self: Path(self.temp_dir) / f"oauth-token-{self.PROVIDER}.json"
+        _dir = self.temp_dir
+        OAuthBase._tmpfs_path = lambda s, _dir=_dir: Path(_dir) / f"oauth-token-{s.PROVIDER}.json"
         
         self.oauth = MockOAuth()
     

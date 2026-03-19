@@ -11,6 +11,7 @@ Steps to create a new provider:
 5. Add to PROVIDER_CONFIG in oauth_base.py
 """
 
+import json
 import logging
 import time
 import requests
@@ -176,7 +177,7 @@ class TemplateOAuth(OAuthBase):
             # Parse response
             try:
                 new_token_data = response.json()
-            except (ValueError, requests.JSONDecodeError):
+            except (ValueError, json.JSONDecodeError):
                 logger.error("[%s] Invalid JSON in refresh response", self.PROVIDER)
                 return False
 
@@ -212,51 +213,56 @@ class TemplateOAuth(OAuthBase):
 
 # ── Initial authorization flow ────────────────────────────────────────
 
-def get_authorization_url() -> str:
+def get_authorization_url(client_id: str) -> str:
     """
     Generate the OAuth authorization URL for initial setup.
-    
+
+    Args:
+        client_id: OAuth client ID
+
     Returns:
         URL to redirect user to for authorization
     """
     from urllib.parse import urlencode
-    
+
     auth_params = {
-        'client_id': TemplateOAuth.CLIENT_ID,
+        'client_id': client_id,
         'redirect_uri': TemplateOAuth.REDIRECT_URI,
         'scope': ' '.join(TemplateOAuth.SCOPES),
         'response_type': 'code',
         'access_type': 'offline',  # Request refresh token
         # Add provider-specific parameters here
     }
-    
+
     return f"{TemplateOAuth.AUTH_URL}?{urlencode(auth_params)}"
 
 
-def exchange_authorization_code(auth_code: str) -> dict:
+def exchange_authorization_code(auth_code: str, client_id: str, client_secret: str) -> dict:
     """
     Exchange authorization code for initial tokens.
-    
+
     Args:
         auth_code: Authorization code from OAuth callback
-        
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
     Returns:
         Token data dictionary
     """
     token_data = {
-        'client_id': TemplateOAuth.CLIENT_ID,
-        'client_secret': TemplateOAuth.CLIENT_SECRET,
+        'client_id': client_id,
+        'client_secret': client_secret,
         'code': auth_code,
         'grant_type': 'authorization_code',
         'redirect_uri': TemplateOAuth.REDIRECT_URI
     }
-    
+
     response = requests.post(TemplateOAuth.TOKEN_URL, data=token_data)
     response.raise_for_status()
 
     try:
         token_response = response.json()
-    except (ValueError, requests.JSONDecodeError):
+    except (ValueError, json.JSONDecodeError):
         raise ValueError("Invalid JSON in token exchange response")
 
     if 'access_token' not in token_response:
@@ -275,11 +281,7 @@ if __name__ == "__main__":
     print("This is a template for creating new OAuth providers.")
     print()
     print("Steps to customize:")
-    print("1. Update PROVIDER name")
-    print("2. Set CLIENT_ID, CLIENT_SECRET, URLs")
+    print("1. Update PROVIDER name and add to PROVIDER_CONFIG")
+    print("2. Store client_id, client_secret with token data in 1Password")
     print("3. Implement provider-specific refresh logic")
-    print("4. Add to PROVIDER_CONFIG in oauth_base.py")
-    print("5. Test with your provider's API")
-    print()
-    print("Authorization URL:")
-    print(get_authorization_url())
+    print("4. Test with your provider's API")

@@ -89,8 +89,15 @@ class OAuthBase:
         """Write this provider's token to its dedicated tmpfs file."""
         path = self._tmpfs_path()
         try:
-            path.write_text(json.dumps(token_data))
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 600
+            # Write to a temp file with correct permissions, then atomically rename.
+            # This avoids a TOCTOU race where the file is briefly world-readable.
+            tmp_path = path.with_suffix(".tmp")
+            fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, json.dumps(token_data).encode())
+            finally:
+                os.close(fd)
+            tmp_path.rename(path)
         except OSError as e:
             logger.warning("[%s] tmpfs write failed: %s", self.PROVIDER, e)
 
@@ -200,15 +207,24 @@ class OAuthBase:
     def get_access_token(self) -> Optional[str]:
         """
         Return just the access_token string.
-        
-        Uses provider-specific validation to detect stale tokens and
-        automatically falls through to 1Password if needed.
+
+        Resolution order:
+          1. tmpfs (fast path, with freshness check)
+          2. 1Password (slow path, backfills tmpfs)
+          3. refresh_token() (last resort, persists to both tiers)
         """
         validate_fn = self._get_validation_function()
         data = self.get_token_data(validate_fn=validate_fn)
-        if data is None:
-            return None
-        return data.get("access_token")
+        if data and data.get("access_token"):
+            return data["access_token"]
+
+        # Last resort: refresh and retry
+        if self.refresh_token():
+            refreshed = self._read_from_tmpfs()
+            if refreshed:
+                return refreshed.get("access_token")
+
+        return None
 
     # ── Token persistence ─────────────────────────────────────────────
 
@@ -314,21 +330,19 @@ def seed_tmpfs_from_1password() -> None:
             module_name = f"providers.{provider_key}_oauth"
             class_name = f"{provider_key.title()}OAuth"
 
-            try:
-                module = __import__(module_name, fromlist=[class_name])
-                provider_class = getattr(module, class_name)
+            module = __import__(module_name, fromlist=[class_name])
+            provider_class = getattr(module, class_name)
 
-                provider = provider_class()
-                token_data = provider.get_token_data()
+            provider = provider_class()
+            token_data = provider.get_token_data()
 
-                if token_data:
-                    logger.info("Seeded %s tokens", provider_key)
-                else:
-                    logger.warning("No tokens found for %s", provider_key)
+            if token_data:
+                logger.info("Seeded %s tokens", provider_key)
+            else:
+                logger.warning("No tokens found for %s", provider_key)
 
-            except (ImportError, AttributeError):
-                logger.warning("Provider %s not available", provider_key)
-
+        except (ImportError, AttributeError):
+            logger.warning("Provider %s not available", provider_key)
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as e:
             logger.error("Failed to seed %s: %s", provider_key, e)
 

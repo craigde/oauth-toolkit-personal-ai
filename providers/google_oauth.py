@@ -10,6 +10,7 @@ Google-specific behaviors:
   - Validation via oauth2/v1/tokeninfo endpoint
 """
 
+import json
 import logging
 import time
 import requests
@@ -64,7 +65,15 @@ class GoogleOAuth(OAuthBase):
             token = self.get_access_token()
         if token is None:
             return False
-        return self.test_api_call(GOOGLE_TOKENINFO_URL, token)
+        try:
+            response = requests.get(
+                GOOGLE_TOKENINFO_URL,
+                params={"access_token": token},
+                timeout=10,
+            )
+            return 200 <= response.status_code < 300
+        except requests.RequestException:
+            return False
 
     # ── Expiry helpers ────────────────────────────────────────────────
 
@@ -158,7 +167,7 @@ class GoogleOAuth(OAuthBase):
             # Parse response
             try:
                 new_token_data = response.json()
-            except (ValueError, requests.JSONDecodeError):
+            except (ValueError, json.JSONDecodeError):
                 logger.error("[%s] Invalid JSON in refresh response", self.PROVIDER)
                 return False
 
@@ -193,51 +202,56 @@ class GoogleOAuth(OAuthBase):
 
 # ── Standalone utilities ──────────────────────────────────────────────
 
-def get_authorization_url() -> str:
+def get_authorization_url(client_id: str) -> str:
     """
     Generate the Google OAuth authorization URL.
-    
+
+    Args:
+        client_id: Google OAuth client ID
+
     Returns:
         URL to redirect user to for authorization
     """
     from urllib.parse import urlencode
-    
+
     auth_params = {
-        'client_id': GoogleOAuth.CLIENT_ID,
+        'client_id': client_id,
         'redirect_uri': GoogleOAuth.REDIRECT_URI,
         'scope': ' '.join(GoogleOAuth.SCOPES),
         'response_type': 'code',
         'access_type': 'offline',
         'prompt': 'consent'  # Force consent to ensure refresh token
     }
-    
+
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(auth_params)}"
 
 
-def exchange_authorization_code(auth_code: str) -> dict:
+def exchange_authorization_code(auth_code: str, client_id: str, client_secret: str) -> dict:
     """
     Exchange authorization code for tokens.
-    
+
     Args:
         auth_code: Authorization code from OAuth callback
-        
+        client_id: Google OAuth client ID
+        client_secret: Google OAuth client secret
+
     Returns:
         Token data dictionary
     """
     token_data = {
-        'client_id': GoogleOAuth.CLIENT_ID,
-        'client_secret': GoogleOAuth.CLIENT_SECRET,
+        'client_id': client_id,
+        'client_secret': client_secret,
         'code': auth_code,
         'grant_type': 'authorization_code',
         'redirect_uri': GoogleOAuth.REDIRECT_URI
     }
-    
+
     response = requests.post('https://oauth2.googleapis.com/token', data=token_data)
     response.raise_for_status()
 
     try:
         token_response = response.json()
-    except (ValueError, requests.JSONDecodeError):
+    except (ValueError, json.JSONDecodeError):
         raise ValueError("Invalid JSON in token exchange response")
 
     if 'access_token' not in token_response:
@@ -255,14 +269,18 @@ if __name__ == "__main__":
     print("Google OAuth Provider")
     print("====================")
     print(f"Scopes: {', '.join(GoogleOAuth.SCOPES)}")
-    print(f"Client ID: {GoogleOAuth.CLIENT_ID}")
     print()
     print("Setup steps:")
     print("1. Create Google Cloud project")
     print("2. Enable Calendar and Gmail APIs")
     print("3. Create OAuth 2.0 credentials")
-    print("4. Update CLIENT_ID and CLIENT_SECRET above")
+    print("4. Store client_id and client_secret in 1Password with token data")
     print("5. Run initial authorization flow")
     print()
-    print("Authorization URL:")
-    print(get_authorization_url())
+    google = GoogleOAuth()
+    client_id = google.CLIENT_ID
+    if client_id:
+        print("Authorization URL:")
+        print(get_authorization_url(client_id))
+    else:
+        print("No client_id found. Store credentials in 1Password first.")

@@ -1,11 +1,11 @@
 #!/bin/bash
-"""
-Systemd Setup for OAuth Cache Seeding
-Sets up automatic tmpfs cache warming on system boot.
-
-This ensures that OAuth tokens are available in tmpfs immediately after
-system startup, providing fast access from the first API call.
-"""
+#
+# Systemd Setup for OAuth Cache Seeding
+# Sets up automatic tmpfs cache warming on system boot.
+#
+# This ensures that OAuth tokens are available in tmpfs immediately after
+# system startup, providing fast access from the first API call.
+#
 
 set -euo pipefail
 

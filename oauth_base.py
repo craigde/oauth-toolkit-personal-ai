@@ -37,7 +37,7 @@ TMPFS_DIR = Path("/dev/shm")
 # Customize these item names to match your 1Password setup
 PROVIDER_CONFIG: Dict[str, Dict[str, str]] = {
     "google": {"item_name": "Google OAuth Token"},
-    "microsoft": {"item_name": "Microsoft OAuth Token"},
+    "mstodo": {"item_name": "Microsoft To Do Token"},
     "spotify": {"item_name": "Spotify OAuth Token"},
     # Add your providers here
 }

@@ -64,7 +64,7 @@ token = google.get_access_token()  # 3ms from tmpfs, 1200ms fallback to 1Passwor
 - **Hot path**: ~3ms (tmpfs RAM cache)
 - **Cold path**: ~1200ms (1Password, then backfills tmpfs)
 - **Auto-refresh**: Expired tokens refresh transparently, persist to both tiers
-- **Provider-specific**: Google (ISO 8601 expiry), Microsoft (Unix timestamp + offset), Spotify, custom template
+- **Providers included**: Google (ISO 8601 expiry), Microsoft/Graph (Unix timestamp, public + confidential clients), Spotify (Basic auth refresh), custom template
 
 ### 2. API Key Manager (`key_manager.py`)
 

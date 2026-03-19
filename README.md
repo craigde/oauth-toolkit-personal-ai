@@ -68,7 +68,7 @@ token = google.get_access_token()  # 3ms from tmpfs, 1200ms fallback to 1Passwor
 
 ### 2. API Key Manager (`key_manager.py`)
 
-Same two-tier pattern for static API keys. No refresh logic needed — just fast, secure retrieval.
+Same 1Password → tmpfs pattern for static API keys. No refresh logic needed — just fast, secure retrieval.
 
 ```python
 from key_manager import KeyManager
@@ -78,15 +78,22 @@ config = {
         "item_name": "OpenAI API Key",
         "field": "credential",
         "cache_file": "api-key-openai",
-        "env_var": "OPENAI_API_KEY",
+        "env_var": "OPENAI_API_KEY",      # optional: for seed_to_env()
     },
 }
 
 km = KeyManager(api_keys=config, vault="Personal")
-key = km.get_key("openai")      # 3ms from tmpfs
+key = km.get_key("openai")      # 3ms from tmpfs, 1200ms fallback to 1Password
 km.seed_all()                    # Pre-load all keys at startup
-km.seed_to_env()                 # Export to environment variables
 ```
+
+If your framework reads keys from environment variables (Node.js, Docker, etc.), `seed_to_env()` bridges the gap:
+
+```python
+km.seed_to_env()                 # 1Password → os.environ (convenience bridge)
+```
+
+This is optional — the canonical store is always 1Password (durable) and tmpfs (fast). Environment variable seeding exists for frameworks you can't change.
 
 ### 3. Boot Unlock (`boot_unlock.py`)
 

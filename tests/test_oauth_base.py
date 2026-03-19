@@ -119,6 +119,18 @@ class TestOAuthBase(unittest.TestCase):
         token = self.oauth.get_access_token()
         self.assertEqual(token, "valid_token")
 
+    def test_atomic_write_no_temp_file_leftover(self):
+        """Test that atomic write doesn't leave .tmp files on success."""
+        test_data = {"access_token": "test_token"}
+        self.oauth._write_to_tmpfs(test_data)
+
+        tmpfs_path = self.oauth._tmpfs_path()
+        tmp_path = tmpfs_path.with_suffix(".tmp")
+
+        # Main file should exist, temp file should not
+        self.assertTrue(tmpfs_path.exists())
+        self.assertFalse(tmp_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

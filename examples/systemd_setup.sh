@@ -1,17 +1,20 @@
 #!/bin/bash
 #
-# Systemd Setup for OAuth Cache Seeding
-# Sets up automatic tmpfs cache warming on system boot.
+# Systemd Setup for Secrets Management Toolkit
+# Sets up the full boot chain: unlock → seed → main service.
 #
-# This ensures that OAuth tokens are available in tmpfs immediately after
-# system startup, providing fast access from the first API call.
+# Boot Chain:
+#   1. boot-unlock.service (oneshot) — Telegram passphrase unlock
+#   2. oauth-cache-seeder.service (oneshot) — Seed tokens to tmpfs
+#   3. your-service.service — Main application (add dependency)
 #
 
 set -euo pipefail
 
 # Configuration
-SERVICE_NAME="oauth-cache-seeder"
-INSTALL_DIR="/opt/oauth-toolkit"
+OAUTH_SERVICE_NAME="oauth-cache-seeder"
+UNLOCK_SERVICE_NAME="boot-unlock"
+INSTALL_DIR="/opt/secrets-toolkit"
 SERVICE_USER="${USER}"
 PYTHON_PATH=$(which python3)
 

@@ -287,6 +287,18 @@ def boot_unlock():
             send_message(bot_token, f"✅ Vault unlocked. {name} is starting up...")
             if prompt_id:
                 delete_message(bot_token, prompt_id)
+            # Confirm the offset with Telegram so the update is truly consumed.
+            # Without this, the next Telegram client (e.g. your main bot gateway)
+            # would re-receive the passphrase update — even though the message
+            # was deleted from the chat. The update stays queued until a
+            # getUpdates call with the consumed offset confirms it.
+            offset = getattr(poll_for_reply, "_offset", None)
+            if offset:
+                try:
+                    telegram_api(bot_token, "getUpdates", {"offset": str(offset), "timeout": "0"})
+                    log.info("Confirmed update offset with Telegram")
+                except Exception:
+                    log.warning("⚠️ Failed to confirm offset — gateway may see stale update")
             log.info("✅ Unlock successful")
             return
 

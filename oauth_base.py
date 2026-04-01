@@ -176,12 +176,15 @@ class OAuthBase:
 
         Resolution order:
           1. tmpfs     → sub-millisecond, per-provider file
-          2. 1Password → slow but always correct, backfills tmpfs
+          2. Validation → provider-specific freshness check
+          3. Auto-refresh → if token is stale and refresh_token() exists
+          4. 1Password → slow but always correct, backfills tmpfs
 
         Args:
             validate_fn: Optional function that takes token_data and returns
                         True if still valid, False if stale. When provided,
-                        a stale tmpfs token triggers fallback to 1Password.
+                        a stale tmpfs token triggers auto-refresh, then
+                        1Password fallback.
         """
         # ── Tier 1: tmpfs (fast path) ──────────────────────────────────
         tmpfs_data = self._read_from_tmpfs()
@@ -190,7 +193,14 @@ class OAuthBase:
             tmpfs_data = self._normalize_token_fields(tmpfs_data)
             
             if validate_fn and not validate_fn(tmpfs_data):
-                logger.warning("[%s] tmpfs token stale, falling back to 1Password", self.PROVIDER)
+                logger.warning("[%s] tmpfs token stale, attempting auto-refresh...", self.PROVIDER)
+                # Try auto-refresh before falling back to 1Password
+                if self._try_auto_refresh():
+                    refreshed = self._read_from_tmpfs()
+                    if refreshed:
+                        refreshed = self._normalize_token_fields(refreshed)
+                        if not validate_fn or validate_fn(refreshed):
+                            return refreshed
             else:
                 return tmpfs_data
 
@@ -200,9 +210,32 @@ class OAuthBase:
         if op_data:
             # Apply provider-specific normalization
             op_data = self._normalize_token_fields(op_data)
-            self._write_to_tmpfs(op_data)
-            logger.info("[%s] Backfilled tmpfs from 1Password", self.PROVIDER)
+            if validate_fn and not validate_fn(op_data):
+                # 1Password token is also stale — try refresh
+                logger.warning("[%s] 1Password token also stale, attempting auto-refresh...", self.PROVIDER)
+                self._write_to_tmpfs(op_data)  # Cache it so refresh_token() can read it
+                if self._try_auto_refresh():
+                    refreshed = self._read_from_tmpfs()
+                    if refreshed:
+                        return self._normalize_token_fields(refreshed)
+                logger.error("[%s] Auto-refresh failed — returning stale token", self.PROVIDER)
+            else:
+                self._write_to_tmpfs(op_data)
+                logger.info("[%s] Backfilled tmpfs from 1Password", self.PROVIDER)
         return op_data
+
+    def _try_auto_refresh(self) -> bool:
+        """
+        Attempt to auto-refresh the token using the subclass refresh_token() method.
+        Returns True if refresh succeeded.
+        """
+        if not hasattr(self, 'refresh_token') or not callable(getattr(self, 'refresh_token', None)):
+            return False
+        try:
+            return self.refresh_token(force=True)
+        except Exception as e:
+            logger.error("[%s] Auto-refresh error: %s", self.PROVIDER, e)
+            return False
 
     def get_access_token(self) -> Optional[str]:
         """
